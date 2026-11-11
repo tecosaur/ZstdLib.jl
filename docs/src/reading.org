@@ -1,0 +1,43 @@
+#+title: Reading
+
+[[@ref][~ZstdReader~]] is a BufferIO ~AbstractBufReader~ that decompresses zstd data as it
+is read, from any source, including pipes and sockets. Concatenated frames are
+read as one, skippable frames are skipped, and each frame is decompressed with
+the dictionary it names.
+
+It reads from an ~AbstractBufReader~, wrapping a plain ~IO~ in a ~BufReader~ first.
+Closing the reader closes its source, and passing a function as the first
+argument calls it on the reader, then closes the reader.
+
+#+begin_src @docs
+ZstdReader
+#+end_src
+
+* Whole buffers
+
+[[@ref][~decompress_zstd~]] decompresses a byte vector, string, or memory view in one
+call. Frames that record their content size, as those from [[@ref][~compress_zstd~]] do,
+are decompressed straight into the output. A single frame can only be
+decompressed in order, but with ~threads~ above one, data made of several
+frames are decompressed in parallel.
+
+To decompress many small inputs, reuse a [[@ref][~ZstdDecompressor~]] and an output vector
+with [[@ref][~decompress_zstd!~]]. To take one frame from data that run on past it,
+such as a record among many in a memory-mapped file, find its end with
+[[@ref][~ZstdLib.framesize~]].
+
+#+begin_src @docs
+ZstdDecompressor
+decompress_zstd
+decompress_zstd!
+ZstdLib.framesize
+#+end_src
+
+* Errors
+
+Corrupt or truncated data, or data needing a dictionary that was not given,
+throws a [[@ref][~ZstdError~]]. A ~ZstdReader~ throws the same error on every later read.
+
+#+begin_src @docs
+ZstdError
+#+end_src

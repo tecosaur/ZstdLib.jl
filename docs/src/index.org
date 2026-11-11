@@ -1,0 +1,34 @@
+#+title: ZstdLib.jl
+
+Read and write [[https://facebook.github.io/zstd/][Zstandard]] data with [[https://github.com/BioJulia/BufferIO.jl][BufferIO.jl]], with dictionaries for
+compressing small data well.
+
+#+begin_src julia
+using ZstdLib
+
+# Compress a file
+ZstdWriter(open("data.zst", "w"); level = 19) do writer
+    write(writer, read("data"))
+end
+
+# Decompress it
+data = ZstdReader(read, open("data.zst"))
+
+# Compress records one at a time, with a dictionary
+dictionary = train_dictionary(sample_records)
+compressor = ZstdCompressor(; level = 19, dictionary)
+frames = [compress_zstd(compressor, record) for record in records]
+decompress_zstd(frames[42]; dictionaries = [dictionary])
+#+end_src
+
+#+begin_src @docs
+ZstdLib
+#+end_src
+
+* Comparison with CodecZstd
+
+[[https://github.com/JuliaIO/CodecZstd.jl][CodecZstd.jl]] provides Zstandard codecs for [[https://github.com/JuliaIO/TranscodingStreams.jl][TranscodingStreams.jl]], so it slots in
+alongside the other TranscodingStreams codecs, such as CodecZlib and CodecXz.
+ZstdLib works on BufferIO's interface instead, like [[https://github.com/tecosaur/XzLib.jl][XzLib]] and [[https://github.com/BioJulia/BGZFLib.jl][BGZFLib]], and adds
+dictionaries: training them, compressing with them, and picking the right one
+for each frame when decompressing.

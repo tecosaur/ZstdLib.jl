@@ -1,0 +1,7 @@
+[deps]
+ZstdLib = "928c4358-427e-42ae-8d49-beec0a561f3b"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Org = "587fedb0-ad84-11e9-2bd6-d15ea4be1f9e"
+
+[sources]
+ZstdLib = {path = ".."}

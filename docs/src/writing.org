@@ -1,0 +1,31 @@
+#+title: Writing
+
+[[@ref][~ZstdWriter~]] is a BufferIO ~AbstractBufWriter~ that compresses data to a zstd
+frame as you write it. Its sink is an ~AbstractBufWriter~, with a plain ~IO~
+wrapped in a ~BufWriter~ first, just as the reader wraps its source. Closing it
+ends the frame and closes the sink, and ~flush~ makes everything written so far
+decodable.
+
+#+begin_src @docs
+ZstdWriter
+#+end_src
+
+* Whole buffers
+
+[[@ref][~compress_zstd~]] compresses a byte vector, string, or memory view into one frame,
+recording its content size.
+
+To compress many small inputs, reuse a [[@ref][~ZstdCompressor~]] and an output vector
+with [[@ref][~compress_zstd!~]].
+
+#+begin_src @docs
+ZstdCompressor
+compress_zstd
+compress_zstd!
+#+end_src
+
+* Threads
+
+With ~threads~ above one, or ~0~ for one per Julia thread, libzstd compresses
+chunks of a few megabytes in parallel, so threads help only with large inputs. With one thread, output is
+written as input arrives.

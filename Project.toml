@@ -1,0 +1,15 @@
+name = "ZstdLib"
+uuid = "928c4358-427e-42ae-8d49-beec0a561f3b"
+authors = ["TEC <git@tecosaur.net>"]
+version = "1.0.0"
+
+[deps]
+BufferIO = "ff366017-094f-4144-bd70-a828a0d67152"
+MemoryViews = "a791c907-b98b-4e44-8f4d-e4c2362c6b2f"
+Zstd_jll = "3161d3a3-bdf6-5164-811a-617609db77b4"
+
+[compat]
+BufferIO = "0.3"
+MemoryViews = "0.5"
+Zstd_jll = "1.5"
+julia = "1.12"

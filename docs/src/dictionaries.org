@@ -1,0 +1,41 @@
+#+title: Dictionaries
+
+Small inputs, such as individual records, compress poorly on their own: there
+is too little in each for patterns to repeat. A dictionary primes the compressor
+with what a kind of data has in common, so each record can be compressed, and
+later decompressed, on its own while still compressing well.
+
+[[@ref][~train_dictionary~]] makes a dictionary from samples of the data, and
+[[@ref][~ZstdDictionary~]] loads one saved earlier, or made by =zstd --train=.
+
+#+begin_src julia
+dictionary = train_dictionary(sample_records; size = 1 << 20)
+write("records.dict", dictionary)
+dictionary = ZstdDictionary(read("records.dict"))
+#+end_src
+
+Pass a dictionary to a [[@ref][~ZstdCompressor~]] or [[@ref][~ZstdWriter~]] to compress with it.
+Every frame records the ID of the dictionary it needs, which [[@ref][~ZstdLib.dictionaryid~]]
+reads, so a [[@ref][~ZstdDecompressor~]] or [[@ref][~ZstdReader~]] given several dictionaries
+decompresses each frame with the right one. Changing to a newly trained
+dictionary thus leaves older data readable, so long as the old dictionary is
+kept too.
+
+Any other bytes, such as an earlier version of a document, also make a
+dictionary, used as raw content. Frames compressed with raw content name no
+dictionary, as do those made by =zstd --no-dictID=. A decompressor gives such
+frames the raw content among its dictionaries, or else its only dictionary,
+like =zstd -D=.
+
+#+begin_src @docs
+ZstdDictionary
+train_dictionary
+ZstdLib.dictionaryid
+#+end_src
+
+* Choosing a size
+
+A dictionary can hold only what its samples have in common, and training wants
+around a hundred times its size in samples. A larger dictionary can help
+records with much shared vocabulary, but past a point gains nothing, and may
+compress worse, so compare a few sizes by compressing held-out records.

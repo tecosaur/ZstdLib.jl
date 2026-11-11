@@ -1,0 +1,134 @@
+#+title: ZstdLib.jl
+#+author: tecosaur
+
+#+html: <a href="https://tecosaur.net"><img src="https://img.shields.io/badge/%F0%9F%A6%95-tec-27a560.svg"></a>
+#+html: <a href="https://tecosaur.github.io/ZstdLib.jl/stable/"><img src="https://img.shields.io/badge/docs-stable-blue.svg"></a>
+#+html: <a href="https://tecosaur.github.io/ZstdLib.jl/dev/"><img src="https://img.shields.io/badge/docs-dev-blue.svg"></a>
+#+html: <a href="https://coveralls.io/github/tecosaur/ZstdLib.jl"><img src="https://coveralls.io/repos/github/tecosaur/ZstdLib.jl/badge.svg"></a>
+#+html: <a href="https://www.tldrlegal.com/license/mozilla-public-license-2-0-mpl-2"><img src="https://img.shields.io/badge/license-MPL%202.0-teal.svg"></a>
+#+html: <a href="https://liberapay.com/tec"><img src="https://shields.io/badge/support%20my%20efforts-f6c915?logo=Liberapay&logoColor=black"></a>
+
+Read and write [[https://facebook.github.io/zstd/][Zstandard]] data with [[https://github.com/BioJulia/BufferIO.jl][BufferIO.jl]], with dictionaries for
+compressing small data well.
+
+#+begin_src julia
+using ZstdLib
+
+text = "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit."
+
+# Whole buffers
+compressed = compress_zstd(text; level = 19)
+decompress_zstd(compressed) == codeunits(text)  # true
+
+# Streams
+ZstdWriter(open("lorem.txt.zst", "w")) do writer
+    write(writer, text)
+end
+ZstdReader(open("lorem.txt.zst")) do reader
+    for line in eachline(reader)
+        println(line)
+    end
+end
+#+end_src
+
+~ZstdWriter~ is a BufferIO ~AbstractBufWriter~, and ~ZstdReader~ an
+~AbstractBufReader~. Wrap a reader in ~BufferIO.IOReader~ to use it as a
+~Base.IO~.
+
+* Dictionaries
+
+Small inputs, such as individual records, compress poorly on their own: there
+is too little in each for patterns to repeat. A dictionary trained on samples
+of the data primes the compressor with what they have in common, so each record
+can be compressed, and later decompressed, on its own while still compressing
+well.
+
+#+begin_src julia
+dictionary = train_dictionary(sample_records; size = 1 << 20)
+write("records.dict", dictionary)
+
+compressor = ZstdCompressor(; level = 19, dictionary)
+frames = [compress_zstd(compressor, record) for record in records]
+
+decompressor = ZstdDecompressor(; dictionaries = [dictionary])
+decompress_zstd(decompressor, frames[42])
+#+end_src
+
+Each frame records the ID of its dictionary, so a decompressor given several
+picks the right one for each frame. Frames made this way can also be read with
+=zstd -D records.dict -d=.
+
+* Reusing state
+
+~ZstdCompressor~ and ~ZstdDecompressor~ hold libzstd's state between calls, and
+~compress_zstd!~ and ~decompress_zstd!~ reuse an output vector, so compressing
+or decompressing many small inputs allocates little. Give each task its own
+compressor and decompressor: they can share dictionaries.
+
+* Threads
+
+Pass ~threads~ to compress large data on several threads, or ~0~ for one per
+Julia thread. libzstd compresses chunks of a few megabytes in parallel into a
+single ordinary frame, and ~ZstdWriter~ writes each out as it completes.
+
+#+begin_src julia
+ZstdWriter(open("data.zst", "w"); level = 19, threads = 8) do writer
+    write(writer, data)
+end
+#+end_src
+
+A zstd frame can only be decompressed in order, but ~decompress_zstd~ takes
+~threads~ too, and decompresses data made of several frames in parallel.
+
+* Performance
+
+=ZstdLib.jl=, =CodecZstd.jl=, and =ChunkCodecLibZstd.jl= all use =Zstd_jll= under the
+hood, and so show little difference on large buffers. The main differences are
+in the interface and approach to small reads/writes and streaming.
+=ZstdInflate.jl= and =Zstandard.jl= are newer pure-Julia implementations.
+
+Throughput is in GB/s of uncompressed data, with compression ratios in
+parentheses. Results within 2% of the best in each row are in bold, and a dash
+means the package does not offer the operation.
+
+| Workload                                         | ZstdLib | CodecZstd | ChunkCodecLibZstd | ZstdInflate | Zstandard |
+|--------------------------------------------------+---------+-----------+-------------------+-------------+-----------|
+| Compress, level 3: Julia source, 4 MiB (×3.76)   | *0.42*    | 0.38      | *0.42*              |           - |      0.04 |
+| Compress, level 3: JSON lines, 8 MiB (×7.29)     | *0.88*    | 0.77      | *0.88*              |           - |   corrupt |
+| Decompress buffer: Julia source                  | *1.7*     | *1.7*       | *1.7*               |         0.8 |       0.3 |
+| Decompress buffer: JSON lines                    | *2.2*     | *2.2*       | *2.2*               |         1.2 |       0.4 |
+| Decompress buffer: random, 4 MiB                 | *30.5*    | 30.3      | 30.3              |        *30.9* |       3.1 |
+| Stream ~read~: JSON lines                          | *1.4*     | 1.3       | -                 |         0.9 |       0.4 |
+| Stream ~read~: random, 4 MiB                       | *7.3*     | *7.2*       | -                 |         4.1 |       2.0 |
+| Stream ~eachline~: JSON lines                      | *1.4*     | 0.2       | -                 |         0.2 |       0.1 |
+| Stream ~write~, level 3: JSON lines (×7.22)        | *0.76*    | 0.74      | -                 |           - |         - |
+| Decompress 5 frames, 8 threads                   | *7.6*     | 1.7       | 1.7               |         2.9 |       0.3 |
+| Compress, level 3, 8 threads: JSON lines, 32 MiB | *2.3*     | -         | *2.3*               |           - |         - |
+
+For small records, zstd supports reusing a dictionary. When compressing and
+decompressing ten thousand JSON objects of about 85 bytes each, one frame per
+record, a dictionary gives five times the compression throughput and 2.3 times
+the compression ratio.
+
+| 10k small records (MB/s)   | ZstdLib | CodecZstd | ChunkCodecLibZstd | ZstdInflate | Zstandard |
+|----------------------------+---------+-----------+-------------------+-------------+-----------|
+| Compress                   | *33*      | 32        | 25                | -           |         8 |
+| Decompress                 | *85*      | 75        | 44                | 19          |         8 |
+| Compress with dictionary   | *178*     | -         | -                 | -           |         - |
+| Decompress with dictionary | *522*     | -         | -                 | 60          |        22 |
+
+With some of the extra work this package does, the load time is a little higher,
+but the TTFX better overall.
+
+| Latency (ms)          | ZstdLib | CodecZstd | ChunkCodecLibZstd | ZstdInflate | Zstandard |
+|-----------------------+---------+-----------+-------------------+-------------+-----------|
+| ~using~ the package     | 11      |         4 | *2*                 |          35 |        87 |
+| First decompress call | *14*      |       132 | 71                |        1247 |       574 |
+
+#+begin_quote
+Measured with Julia 1.13.2 and =libzstd= 1.5.7 on an Intel i5-13600K, against
+=CodecZstd= 0.8.7, =ChunkCodecLibZstd= 1.0.0, =ZstdInflate= 0.2.1, and =Zstandard=
+0.1.1, on a single pinned core (twelve for the threaded rows). Each figure is
+the fastest of 25 rounds, with the packages taken in a fresh random order each
+round. Run =docs/benchmark/run.sh= to measure them yourself.
+#+end_quote
